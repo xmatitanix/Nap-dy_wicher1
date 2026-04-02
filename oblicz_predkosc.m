@@ -40,7 +40,7 @@ QUAD_LUT = [ 0, -1,  1,  0;   % poprzedni stan = 0 (A=0, B=0)
              1,  0,  0, -1;   % poprzedni stan = 1 (A=0, B=1)
             -1,  0,  0,  1;   % poprzedni stan = 2 (A=1, B=0)
              0,  1, -1,  0];  % poprzedni stan = 3 (A=1, B=1)
-LUT_FLAT = QUAD_LUT(:);       % spłaszczona do indeksowania liniowego
+% (indeksowanie przez sub2ind, LUT_FLAT nie jest potrzebny)
 
 %% =========================================================
 %  PETLA PO ZBIORACH DANYCH
@@ -68,12 +68,14 @@ for d = 1:length(PLIKI)
     B_dig = double(imp_B > thr_B);
 
     %% ---- Dekodowanie kwadraturowe -> pozycja w zliczeniach ----
-    stan    = int32(2*A_dig + B_dig);        % wartosci: 0, 1, 2, 3
-    prev_s  = stan(1:end-1) + 1;            % indeks 1..4 (poprzedni)
-    curr_s  = stan(2:end)   + 1;            % indeks 1..4 (biezacy)
-    idx_lut = (prev_s - 1)*4 + curr_s;      % indeks do LUT_FLAT
-    delta   = LUT_FLAT(idx_lut);            % przyrosty zliczen
-    pos_raw = [0; cumsum(double(delta))];   % pozycja [zliczenia]
+    stan    = 2*A_dig + B_dig;              % wartosci: 0, 1, 2, 3
+    prev_s  = stan(1:end-1) + 1;           % indeks 1..4 (poprzedni)
+    curr_s  = stan(2:end)   + 1;           % indeks 1..4 (biezacy)
+    % sub2ind: QUAD_LUT(wiersz=poprz_stan, kolumna=curr_stan)
+    % Unikamy bledu row/col przy recznym splaszczeniu (:) w MATLAB
+    idx_lut = sub2ind(size(QUAD_LUT), prev_s, curr_s);
+    delta   = QUAD_LUT(idx_lut);           % przyrosty zliczen
+    pos_raw = [0; cumsum(delta)];          % pozycja [zliczenia]
 
     %% ---- Tworzenie wykresu dla tego zbioru danych ----
     fig = figure('Name', TYTULY{d}, 'NumberTitle', 'off', ...
@@ -92,8 +94,9 @@ for d = 1:length(PLIKI)
         t_target = t_target(t_target <= t_raw(end));
 
         % --- Probkowanie pozycji metoda ZOH (zero-order hold) ---
-        % Symuluje odczyt licznika enkodera w chwilach probkowania
-        pos_t = interp1(t_raw, pos_raw, t_target, 'previous', 'extrap');
+        % Bezposrednie indeksowanie: unika problemow interp1('previous','extrap')
+        idx_raw = min(floor(t_target * fs_raw) + 1, length(pos_raw));
+        pos_t   = pos_raw(idx_raw);
 
         % --- Wsteczna metoda Eulera ---
         % omega(k) = [theta(k) - theta(k-1)] / T
@@ -110,7 +113,7 @@ for d = 1:length(PLIKI)
              'DisplayName', '\omega_{odn}');
         hold on;
         plot(t_target, omega_enc, 'Color', KOLORY{f}, 'LineWidth', 1.0, ...
-             'DisplayName', ['\omega_{enc},\ ', FS_LABELS{f}]);
+             'DisplayName', ['\omega_{enc} ', FS_LABELS{f}]);
         hold off;
 
         xlabel('Czas [s]',     'FontSize', 10);
