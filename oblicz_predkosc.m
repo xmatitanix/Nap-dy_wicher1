@@ -34,13 +34,12 @@ KOLORY = {[0.13 0.47 0.71], [0.84 0.15 0.16], [0.17 0.63 0.17], [0.58 0.40 0.74]
 %  Stan = 2*A + B  (wartosci: 0, 1, 2, 3)
 %  Obrot do przodu:  0->2->3->1->0  (+1 za kazde przejscie)
 %  Obrot do tylu:    0->1->3->2->0  (-1 za kazde przejscie)
-%  quad_lut(stan_poprz+1, stan_curr+1) = zmiana licznika
+%  QUAD_LUT(wiersz=stan_poprz+1, kolumna=stan_curr+1) = zmiana licznika
 %% =========================================================
 QUAD_LUT = [ 0, -1,  1,  0;   % poprzedni stan = 0 (A=0, B=0)
              1,  0,  0, -1;   % poprzedni stan = 1 (A=0, B=1)
             -1,  0,  0,  1;   % poprzedni stan = 2 (A=1, B=0)
              0,  1, -1,  0];  % poprzedni stan = 3 (A=1, B=1)
-LUT_FLAT = QUAD_LUT(:);       % spłaszczona do indeksowania liniowego
 
 %% =========================================================
 %  PETLA PO ZBIORACH DANYCH
@@ -68,17 +67,19 @@ for d = 1:length(PLIKI)
     B_dig = double(imp_B > thr_B);
 
     %% ---- Dekodowanie kwadraturowe -> pozycja w zliczeniach ----
-    stan    = int32(2*A_dig + B_dig);        % wartosci: 0, 1, 2, 3
-    prev_s  = stan(1:end-1) + 1;            % indeks 1..4 (poprzedni)
-    curr_s  = stan(2:end)   + 1;            % indeks 1..4 (biezacy)
-    idx_lut = (prev_s - 1)*4 + curr_s;      % indeks do LUT_FLAT
-    delta   = LUT_FLAT(idx_lut);            % przyrosty zliczen
-    pos_raw = [0; cumsum(double(delta))];   % pozycja [zliczenia]
+    stan    = 2*A_dig + B_dig;              % wartosci: 0, 1, 2, 3
+    prev_s  = stan(1:end-1) + 1;           % indeks 1..4 (poprzedni)
+    curr_s  = stan(2:end)   + 1;           % indeks 1..4 (biezacy)
+    % sub2ind: poprawne mapowanie QUAD_LUT(wiersz=poprz, kolumna=curr)
+    % Unikamy bledu column-major vs row-major przy recznym splaszczeniu (:)
+    idx_lut = sub2ind(size(QUAD_LUT), prev_s, curr_s);
+    delta   = QUAD_LUT(idx_lut);           % przyrosty zliczen
+    pos_raw = [0; cumsum(delta)];          % pozycja [zliczenia]
 
     %% ---- Tworzenie wykresu dla tego zbioru danych ----
     fig = figure('Name', TYTULY{d}, 'NumberTitle', 'off', ...
                  'Position', [30, 30, 1400, 800]);
-    sgtitle(sprintf('Predkosc katowa z enkodera  —  Sygnal %s', TYTULY{d}), ...
+    sgtitle(sprintf('Predkosc katowa z enkodera  -  Sygnal %s', TYTULY{d}), ...
             'FontSize', 13, 'FontWeight', 'bold', 'Interpreter', 'none');
 
     %% ---- Petla po czestotliwosciach probkowania ----
@@ -92,8 +93,9 @@ for d = 1:length(PLIKI)
         t_target = t_target(t_target <= t_raw(end));
 
         % --- Probkowanie pozycji metoda ZOH (zero-order hold) ---
-        % Symuluje odczyt licznika enkodera w chwilach probkowania
-        pos_t = interp1(t_raw, pos_raw, t_target, 'previous', 'extrap');
+        % Bezposrednie indeksowanie: unika problemow interp1('previous','extrap')
+        idx_raw = min(floor(t_target * fs_raw) + 1, length(pos_raw));
+        pos_t   = pos_raw(idx_raw);
 
         % --- Wsteczna metoda Eulera ---
         % omega(k) = [theta(k) - theta(k-1)] / T
@@ -110,7 +112,7 @@ for d = 1:length(PLIKI)
              'DisplayName', '\omega_{odn}');
         hold on;
         plot(t_target, omega_enc, 'Color', KOLORY{f}, 'LineWidth', 1.0, ...
-             'DisplayName', ['\omega_{enc},\ ', FS_LABELS{f}]);
+             'DisplayName', ['\omega_{enc} ', FS_LABELS{f}]);
         hold off;
 
         xlabel('Czas [s]',     'FontSize', 10);
